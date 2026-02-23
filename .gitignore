@@ -13,7 +13,9 @@ saves*/
 notebooks/
 output*/
 wandb/
-data/
+!data/
+data/*
+!data/preprocess.py
 !*/data/ 
 evals/
 !*/evals/  
