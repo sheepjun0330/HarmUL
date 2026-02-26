@@ -8,9 +8,17 @@ import sys
 from pathlib import Path
 from typing import Iterable, List
 
+# optional logging - import only when enabled to avoid dependency requirement
+
 
 DEFAULT_METHODS = ["GradAscent", "GradDiff", "NPO", "SimNPO", "RMU", "DPO"]
 ALT_REQUIRED_METHODS = {"DPO"}
+METHOD_ALIASES = {
+    "GA": "GradAscent",
+    "GRAD_ASCENT": "GradAscent",
+    "GD": "GradDiff",
+    "GRAD_DIFF": "GradDiff",
+}
 
 
 def _find_free_port() -> int:
@@ -33,13 +41,24 @@ def _parse_methods(values: Iterable[str]) -> List[str]:
     return methods
 
 
+def _normalize_methods(methods: Iterable[str]) -> List[str]:
+    normalized: List[str] = []
+    for method in methods:
+        key = method.strip()
+        alias_key = key.upper().replace("-", "_")
+        normalized.append(METHOD_ALIASES.get(alias_key, key))
+    return normalized
+
+
 def _build_common_overrides(args: argparse.Namespace) -> List[str]:
     overrides = [
         "trainer.args.do_train=True",
         f"trainer.args.do_eval={'True' if args.enable_eval else 'False'}",
     ]
     if not args.enable_eval:
-        overrides.append("eval=null")
+        # Hydra config-group disable: deleting the `eval` group is more robust
+        # than assigning `null`, which can error on some Hydra versions.
+        overrides.append("~eval")
 
     if args.model is not None:
         overrides.append(f"model={args.model}")
@@ -73,7 +92,7 @@ def _build_post_eval_cmd(
         task_name=task_name, method=method
     )
     cmd = [
-        "python",
+        sys.executable,
         "src/eval.py",
         f"task_name={task_name}",
         f"model={args.model}",
@@ -181,11 +200,55 @@ def main() -> int:
         nargs="*",
         help="Additional Hydra overrides appended to every run.",
     )
+
+    # wandb logging options
+    parser.add_argument(
+        "--wandb",
+        action="store_true",
+        help="Enable logging to Weights & Biases.",
+    )
+    parser.add_argument(
+        "--wandb-entity",
+        default="sheepjun",
+        help="Weights & Biases entity (team/user) to log under.",
+    )
+    parser.add_argument(
+        "--wandb-project",
+        default="HarmUL",
+        help="Weights & Biases project name.",
+    )
+
     args = parser.parse_args()
 
     methods = _parse_methods(args.methods)
     if not methods:
         raise SystemExit("No methods provided.")
+    methods = _normalize_methods(methods)
+
+    # if wandb enabled, initialize a run now that we know which methods will be used
+    run = None
+    if args.wandb:
+        try:
+            import wandb
+        except ImportError:
+            raise RuntimeError("wandb is required for logging but is not installed")
+
+        config = {
+            "model": args.model,
+            "model_path": args.model_path,
+            "task_prefix": args.task_prefix,
+            "methods": methods,
+            "num_train_epochs": args.num_train_epochs,
+            "learning_rate": args.learning_rate,
+            "per_device_train_batch_size": args.per_device_train_batch_size,
+            "gradient_accumulation_steps": args.gradient_accumulation_steps,
+            "accelerate_config": args.accelerate_config,
+        }
+        run = wandb.init(
+            entity=args.wandb_entity,
+            project=args.wandb_project,
+            config=config,
+        )
 
     data_dir = Path(args.data_dir)
     forget_path = data_dir / "forget.jsonl"
@@ -222,8 +285,9 @@ def main() -> int:
         ]
 
         cmd = [
-            "accelerate",
-            "launch",
+            sys.executable,
+            "-m",
+            "accelerate.commands.launch",
             "--config_file",
             args.accelerate_config,
             "--main_process_port",
@@ -237,6 +301,11 @@ def main() -> int:
 
         print(f"\n[{method}] {'(uses forget_alt)' if uses_alt else ''}".rstrip())
         print(_quote_cmd(cmd))
+
+        if run is not None:
+            # record which method is being run in this wandb session
+            run.log({"method": method, "task_name": task_name})
+
         if args.post_eval:
             eval_cmd = _build_post_eval_cmd(args=args, method=method, task_name=task_name)
             print(f"[{method}] post-eval")
@@ -253,6 +322,11 @@ def main() -> int:
             if eval_completed.returncode != 0:
                 return eval_completed.returncode
 
+    if run is not None:
+        try:
+            run.finish()
+        except Exception:
+            pass
     return 0
 
 
