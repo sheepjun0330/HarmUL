@@ -1,0 +1,12 @@
+JSON_QA_forget_alt:
+  handler: QAwithAlternateDataset
+  args:
+    hf_args:
+      path: "json"
+      data_files: "data/unlearn/forget_alt.jsonl"
+      split: "train"
+    question_key: "question"
+    answer_key: "answer"
+    alternate_key: "alternate"
+    return_original: true
+    max_length: 512

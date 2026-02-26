@@ -1,35 +1,77 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
-export MASTER_PORT=$(python -c "import socket; s=socket.socket(); s.bind(('', 0)); print(s.getsockname()[1]); s.close()")
-echo "Master Port: $MASTER_PORT"
+# Wrapper for running unlearning methods on local JSONL datasets in data/unlearn/.
+# You can override defaults with env vars, and pass extra Hydra overrides as args.
+#
+# Examples:
+#   bash scripts/json_unlearn.sh
+#   METHODS="GradAscent,DPO" bash scripts/json_unlearn.sh --dry-run
+#   MODEL=Llama-3.2-3B-Instruct MODEL_PATH=meta-llama/Llama-3.2-3B-Instruct bash scripts/json_unlearn.sh
+#   POST_EVAL=1 POST_EVAL_EXPERIMENT=eval/tofu/default.yaml bash scripts/json_unlearn.sh
 
-model="Llama-3.2-1B-Instruct"
-model_path="meta-llama/Llama-3.2-1B-Instruct"
-methods=("GradAscent" "GradDiff" "NPO" "SimNPO" "RMU")
+MODEL="${MODEL:-Llama-3.2-1B-Instruct}"
+MODEL_PATH="${MODEL_PATH:-meta-llama/Llama-3.2-1B-Instruct}"
+METHODS="${METHODS:-GradAscent,GradDiff,NPO,SimNPO,RMU,DPO}"
+DATA_DIR="${DATA_DIR:-data/unlearn}"
+TASK_PREFIX="${TASK_PREFIX:-json}"
+ACCELERATE_CONFIG="${ACCELERATE_CONFIG:-configs/accelerate/default_config.yaml}"
+CUDA_DEVICES="${CUDA_DEVICES:-0,1}"
 
-for trainer in "${methods[@]}"; do
-  task_name="json_${trainer}"
-  echo "Running $trainer with local JSON datasets"
+# Optional knobs (leave empty to use trainer/config defaults)
+NUM_TRAIN_EPOCHS="${NUM_TRAIN_EPOCHS:-}"
+LEARNING_RATE="${LEARNING_RATE:-}"
+PER_DEVICE_TRAIN_BATCH_SIZE="${PER_DEVICE_TRAIN_BATCH_SIZE:-}"
+GRADIENT_ACCUMULATION_STEPS="${GRADIENT_ACCUMULATION_STEPS:-}"
+ENABLE_EVAL="${ENABLE_EVAL:-0}"
+POST_EVAL="${POST_EVAL:-0}"
+POST_EVAL_EXPERIMENT="${POST_EVAL_EXPERIMENT:-}"
+POST_EVAL_MODEL_PATH_TEMPLATE="${POST_EVAL_MODEL_PATH_TEMPLATE:-saves/unlearn/{task_name}}"
 
-  CUDA_VISIBLE_DEVICES=0,1 accelerate launch --config_file configs/accelerate/default_config.yaml --main_process_port $MASTER_PORT \
-  src/train.py --config-name=unlearn.yaml \
-  experiment=unlearn/tofu/default.yaml \
-  trainer=${trainer} \
-  task_name=${task_name} \
-  model=${model} \
-  model.model_args.pretrained_model_name_or_path=${model_path} \
-  data/datasets@data.forget=JSON_QA_forget \
-  data/datasets@data.retain=JSON_QA_retain
+cmd=(
+  python src/unlearn.py
+  --methods "${METHODS}"
+  --data-dir "${DATA_DIR}"
+  --model "${MODEL}"
+  --model-path "${MODEL_PATH}"
+  --task-prefix "${TASK_PREFIX}"
+  --accelerate-config "${ACCELERATE_CONFIG}"
+  --cuda-visible-devices "${CUDA_DEVICES}"
+)
 
-done
+if [[ "${ENABLE_EVAL}" == "1" ]]; then
+  cmd+=(--enable-eval)
+fi
+if [[ "${POST_EVAL}" == "1" ]]; then
+  cmd+=(--post-eval)
+  if [[ -n "${POST_EVAL_EXPERIMENT}" ]]; then
+    cmd+=(--post-eval-experiment "${POST_EVAL_EXPERIMENT}")
+  fi
+  if [[ -n "${POST_EVAL_MODEL_PATH_TEMPLATE}" ]]; then
+    cmd+=(--post-eval-model-path-template "${POST_EVAL_MODEL_PATH_TEMPLATE}")
+  fi
+fi
+if [[ -n "${NUM_TRAIN_EPOCHS}" ]]; then
+  cmd+=(--num-train-epochs "${NUM_TRAIN_EPOCHS}")
+fi
+if [[ -n "${LEARNING_RATE}" ]]; then
+  cmd+=(--learning-rate "${LEARNING_RATE}")
+fi
+if [[ -n "${PER_DEVICE_TRAIN_BATCH_SIZE}" ]]; then
+  cmd+=(--per-device-train-batch-size "${PER_DEVICE_TRAIN_BATCH_SIZE}")
+fi
+if [[ -n "${GRADIENT_ACCUMULATION_STEPS}" ]]; then
+  cmd+=(--gradient-accumulation-steps "${GRADIENT_ACCUMULATION_STEPS}")
+fi
 
-# DPO requires alternate responses in forget set (question, answer, alternate)
-CUDA_VISIBLE_DEVICES=0,1 accelerate launch --config_file configs/accelerate/default_config.yaml --main_process_port $MASTER_PORT \
-src/train.py --config-name=unlearn.yaml \
-experiment=unlearn/tofu/idk.yaml \
-trainer=DPO \
-task_name=json_DPO \
-model=${model} \
-model.model_args.pretrained_model_name_or_path=${model_path} \
-data/datasets@data.forget=JSON_QA_forget_alt \
-data/datasets@data.retain=JSON_QA_retain
+# Pass through any extra CLI args (e.g., --dry-run or custom Hydra overrides)
+cmd+=("$@")
+
+echo "Running JSON unlearning methods: ${METHODS}"
+echo "Model config: ${MODEL}"
+echo "Data dir: ${DATA_DIR}"
+if [[ "${POST_EVAL}" == "1" ]]; then
+  echo "Post-eval: enabled (${POST_EVAL_EXPERIMENT:-default eval.yaml})"
+fi
+
+exec "${cmd[@]}"
