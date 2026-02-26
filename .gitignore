@@ -183,3 +183,9 @@ cython_debug/
 .idea/
 
 .vscode/
+
+.venv/
+__pycache__/
+*.pyc
+.python-version
+uv.lock
