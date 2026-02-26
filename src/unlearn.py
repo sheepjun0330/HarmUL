@@ -59,6 +59,9 @@ def _build_common_overrides(args: argparse.Namespace) -> List[str]:
         # Hydra config-group disable: deleting the `eval` group is more robust
         # than assigning `null`, which can error on some Hydra versions.
         overrides.append("~eval")
+        # Newer transformers validates eval_strategy independently of do_eval.
+        overrides.append("trainer.args.eval_strategy=no")
+        overrides.append("trainer.args.eval_on_start=False")
     if args.wandb:
         # Route HF Trainer logs (loss, lr, etc.) to Weights & Biases.
         overrides.append("trainer.args.report_to=wandb")
@@ -291,7 +294,7 @@ def main() -> int:
         ]
         if args.wandb:
             # Name each trainer run after the method-specific task.
-            hydra_overrides.append(f"trainer.args.run_name={task_name}")
+            hydra_overrides.append(f"+trainer.args.run_name={task_name}")
 
         cmd = [
             sys.executable,

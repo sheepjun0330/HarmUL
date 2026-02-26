@@ -2,6 +2,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from omegaconf import DictConfig, open_dict
 from typing import Dict, Any
 import os
+import importlib.util
 import torch
 import logging
 from model.probe import ProbedLlamaForCausalLM
@@ -38,12 +39,27 @@ def get_dtype(model_args):
     return torch.float32
 
 
+def _resolve_attn_implementation(model_args):
+    attn_impl = model_args.get("attn_implementation", None)
+    if attn_impl != "flash_attention_2":
+        return
+    if importlib.util.find_spec("flash_attn") is not None:
+        return
+    with open_dict(model_args):
+        model_args["attn_implementation"] = "sdpa"
+    logger.warning(
+        "flash_attn is not installed but attn_implementation=flash_attention_2 was requested; "
+        "falling back to attn_implementation=sdpa."
+    )
+
+
 def get_model(model_cfg: DictConfig):
     assert model_cfg is not None and model_cfg.model_args is not None, ValueError(
         "Model config not found or model_args absent in configs/model."
     )
     model_args = model_cfg.model_args
     tokenizer_args = model_cfg.tokenizer_args
+    _resolve_attn_implementation(model_args)
     torch_dtype = get_dtype(model_args)
     model_handler = model_cfg.get("model_handler", "AutoModelForCausalLM")
     model_cls = MODEL_REGISTRY[model_handler]
