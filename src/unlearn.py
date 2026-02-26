@@ -59,6 +59,9 @@ def _build_common_overrides(args: argparse.Namespace) -> List[str]:
         # Hydra config-group disable: deleting the `eval` group is more robust
         # than assigning `null`, which can error on some Hydra versions.
         overrides.append("~eval")
+    if args.wandb:
+        # Route HF Trainer logs (loss, lr, etc.) to Weights & Biases.
+        overrides.append("trainer.args.report_to=wandb")
 
     if args.model is not None:
         overrides.append(f"model={args.model}")
@@ -266,6 +269,9 @@ def main() -> int:
     env = os.environ.copy()
     if args.cuda_visible_devices is not None:
         env["CUDA_VISIBLE_DEVICES"] = args.cuda_visible_devices
+    if args.wandb:
+        env["WANDB_PROJECT"] = args.wandb_project
+        env["WANDB_ENTITY"] = args.wandb_entity
 
     for method in methods:
         uses_alt = method in ALT_REQUIRED_METHODS
@@ -283,6 +289,9 @@ def main() -> int:
             f"data.forget.{forget_cfg}.args.hf_args.data_files={forget_data_file.as_posix()}",
             f"data.retain.JSON_QA_retain.args.hf_args.data_files={retain_path.as_posix()}",
         ]
+        if args.wandb:
+            # Name each trainer run after the method-specific task.
+            hydra_overrides.append(f"trainer.args.run_name={task_name}")
 
         cmd = [
             sys.executable,

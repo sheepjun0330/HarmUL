@@ -1,0 +1,12 @@
+# @package _global_
+
+defaults:
+  - override /eval: json_unlearn
+
+eval_data_dir: data/unlearn
+
+eval:
+  json_unlearn:
+    eval_data_dir: ${eval_data_dir}
+
+task_name: ???

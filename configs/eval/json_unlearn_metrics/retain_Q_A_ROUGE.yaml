@@ -1,0 +1,22 @@
+# @package eval.json_unlearn.metrics.retain_Q_A_ROUGE
+defaults:
+  - ../../data/datasets@datasets: JSON_QA_eval_retain
+  - ../../collator@collators: DataCollatorForSupervisedDatasetwithIndex
+  - ../../generation@generation_args: default
+
+handler: rouge
+rouge_type: rougeL_recall
+batch_size: ${eval.json_unlearn.batch_size}
+
+datasets:
+  JSON_QA_eval_retain:
+    args:
+      hf_args:
+        data_files: ${eval.json_unlearn.eval_data_dir}/eval_retain.jsonl
+      question_key: ${eval.json_unlearn.question_key}
+      predict_with_generate: True
+
+collators:
+  DataCollatorForSupervisedDataset:
+    args:
+      padding_side: left

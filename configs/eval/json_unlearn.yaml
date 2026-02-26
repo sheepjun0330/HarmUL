@@ -1,0 +1,16 @@
+# @package eval.json_unlearn
+
+defaults:
+  - json_unlearn_metrics:
+    - forget_Q_A_Prob
+    - forget_Q_A_ROUGE
+    - retain_Q_A_Prob
+    - retain_Q_A_ROUGE
+
+handler: JSONUnlearnEvaluator
+output_dir: ${paths.output_dir}
+metrics: {}
+overwrite: false
+batch_size: 32
+question_key: "question"
+eval_data_dir: "data/unlearn"

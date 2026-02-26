@@ -1,0 +1,6 @@
+# @package _global_
+
+defaults:
+  - default
+
+eval_data_dir: data/unlearn/llama2_7b_chat_harmbench

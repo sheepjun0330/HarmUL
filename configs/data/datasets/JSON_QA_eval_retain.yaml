@@ -1,0 +1,10 @@
+JSON_QA_eval_retain:
+  handler: QADataset
+  args:
+    hf_args:
+      path: "json"
+      data_files: "data/unlearn/eval_retain.jsonl"
+      split: "train"
+    question_key: "question"
+    answer_key: "answer"
+    max_length: 512

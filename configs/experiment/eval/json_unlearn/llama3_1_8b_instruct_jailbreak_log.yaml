@@ -1,0 +1,6 @@
+# @package _global_
+
+defaults:
+  - default
+
+eval_data_dir: data/unlearn/llama3_1_8b_instruct_jailbreak_log
