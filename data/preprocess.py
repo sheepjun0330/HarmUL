@@ -114,25 +114,47 @@ def _extract_from_harmbench(
     forget_alt: List[Dict[str, Any]] = []
 
     for row in data:
-        query = _normalize_text(row.get("query"))
-        if not query:
+        original_query = _normalize_text(row.get("query"))
+        if not original_query:
             continue
 
         responses = row.get("response") or []
         scores = row.get("harmbench_score") or []
 
+        # attack_generate is optional; when aligned with responses, use attack as question
+        attack_gen = row.get("attack_generate") or []
+
+        def get_attack_prompt(i: int) -> str:
+            if not isinstance(attack_gen, list):
+                return ""
+            if i >= len(attack_gen):
+                return ""
+            item = attack_gen[i]
+            if not isinstance(item, dict):
+                return ""
+            return _normalize_text(item.get("attack"))
+
         for idx, answer in enumerate(responses):
             answer_text = _normalize_text(answer)
             if not answer_text:
                 continue
+
             score = scores[idx] if idx < len(scores) else None
 
+            attack_prompt = get_attack_prompt(idx)
+            # Prefer attack prompt if present; otherwise fallback to original query
+            question_text = attack_prompt if attack_prompt else original_query
+
             base = {
-                "question": query,
+                "question": question_text,          # <-- changed: attack (preferred)
                 "answer": answer_text,
                 "source": "harmbench",
                 "example_idx": row.get("example_idx"),
                 "candidate_idx": idx,
+                # extra metadata for traceability
+                "original_query": original_query,
+                "attack_prompt": attack_prompt,     # empty if unavailable
+                "attack_idx": idx if attack_prompt else None,
             }
 
             # Goal A:
@@ -142,12 +164,16 @@ def _extract_from_harmbench(
                 forget.append(base)
                 forget_alt.append(
                     {
-                        "question": query,
+                        "question": question_text,      # <-- keep consistent with base
                         "answer": answer_text,
                         "alternate": refusal_text,
                         "source": "harmbench",
                         "example_idx": row.get("example_idx"),
                         "candidate_idx": idx,
+                        # same traceability fields
+                        "original_query": original_query,
+                        "attack_prompt": attack_prompt,
+                        "attack_idx": idx if attack_prompt else None,
                     }
                 )
             elif score == 0:

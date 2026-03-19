@@ -91,12 +91,13 @@ def evaluate_probability(model, batch):
     loss_function = nn.CrossEntropyLoss(ignore_index=IGNORE_INDEX, reduction="none")
     # agg loss across tokens
     losses = loss_function(logits.transpose(-1, -2), shifted_labels).sum(dim=-1)
-    num_token_gt = (batch["labels"] != IGNORE_INDEX).sum(-1)
-    avg_losses = losses / num_token_gt
+    num_token_gt = (batch["labels"] != IGNORE_INDEX).sum(-1).clamp_min(1)
+    # numpy cannot handle bfloat16; cast to float32 before CPU conversion.
+    avg_losses = (losses / num_token_gt).float()
     normalized_probs = torch.exp(-avg_losses)
 
     avg_losses = avg_losses.cpu().numpy().tolist()
-    normalized_probs = normalized_probs.cpu().numpy().tolist()
+    normalized_probs = normalized_probs.float().cpu().numpy().tolist()
     return [
         {"prob": prob, "avg_loss": avg_loss}
         for prob, avg_loss in zip(normalized_probs, avg_losses)
