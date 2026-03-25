@@ -74,10 +74,10 @@ cmd+=(--per-device-train-batch-size "${PER_DEVICE_TRAIN_BATCH_SIZE}")
 cmd+=(--gradient-accumulation-steps "${GRADIENT_ACCUMULATION_STEPS}")
 cmd+=(trainer.args.save_strategy="${SAVE_STRATEGY}")
 if [[ "${SAVE_STRATEGY}" == "steps" && -n "${SAVE_STEPS}" ]]; then
-  cmd+=(trainer.args.save_steps="${SAVE_STEPS}")
+  cmd+=(+trainer.args.save_steps="${SAVE_STEPS}")
 fi
 if [[ "${SAVE_STRATEGY}" != "no" && -n "${SAVE_TOTAL_LIMIT}" ]]; then
-  cmd+=(trainer.args.save_total_limit="${SAVE_TOTAL_LIMIT}")
+  cmd+=(+trainer.args.save_total_limit="${SAVE_TOTAL_LIMIT}")
 fi
 if [[ "${SAVE_ONLY_MODEL}" == "1" ]]; then
   cmd+=(trainer.args.save_only_model=True)

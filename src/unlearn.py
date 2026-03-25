@@ -224,7 +224,11 @@ def main() -> int:
         help="Weights & Biases project name.",
     )
 
-    args = parser.parse_args()
+    args, unknown = parser.parse_known_args()
+    unknown_options = [item for item in unknown if item.startswith("-")]
+    if unknown_options:
+        parser.error(f"unrecognized arguments: {' '.join(unknown_options)}")
+    args.hydra_overrides.extend(unknown)
 
     methods = _parse_methods(args.methods)
     if not methods:

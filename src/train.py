@@ -1,10 +1,13 @@
 import hydra
+import logging
 from omegaconf import DictConfig
 from data import get_data, get_collators
 from model import get_model
 from trainer import load_trainer
 from evals import get_evaluators
 from trainer.utils import seed_everything
+
+logger = logging.getLogger("train")
 
 
 @hydra.main(version_base=None, config_path="../configs", config_name="train.yaml")
@@ -58,8 +61,11 @@ def main(cfg: DictConfig):
 
     if trainer_args.do_train:
         trainer.train()
-        trainer.save_state()
-        trainer.save_model(trainer_args.output_dir)
+        if cfg.get("skip_final_save", False):
+            logger.info("Skipping final trainer.save_state/save_model by request.")
+        else:
+            trainer.save_state()
+            trainer.save_model(trainer_args.output_dir)
 
     if trainer_args.do_eval:
         trainer.evaluate(metric_key_prefix="eval")

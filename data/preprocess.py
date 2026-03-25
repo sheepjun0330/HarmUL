@@ -1,6 +1,7 @@
 import argparse
 import json
 import random
+from copy import deepcopy
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -103,6 +104,40 @@ def _group_split_by_question(
         (eval_forget_alt if r.get("question") in eval_forget_q else train_forget_alt).append(r)
 
     return train_forget, train_retain, train_forget_alt, eval_forget, eval_retain, eval_forget_alt
+
+
+def _parse_csv_fields(raw_value: str) -> List[str]:
+    return [field.strip() for field in raw_value.split(",") if field.strip()]
+
+
+def _mask_text(text: Any, mask_token: str) -> str:
+    normalized = _normalize_text(text)
+    if not normalized:
+        return normalized
+    return mask_token
+
+
+def _mask_records(
+    records: List[Dict[str, Any]],
+    fields: Sequence[str],
+    mask_token: str,
+) -> List[Dict[str, Any]]:
+    if not records or not fields:
+        return records
+
+    masked_records: List[Dict[str, Any]] = []
+    for record in records:
+        masked = deepcopy(record)
+        applied_fields: List[str] = []
+        for field in fields:
+            if field in masked:
+                masked[field] = _mask_text(masked[field], mask_token)
+                applied_fields.append(field)
+        if applied_fields:
+            masked["mask_applied"] = True
+            masked["masked_fields"] = applied_fields
+        masked_records.append(masked)
+    return masked_records
 
 
 def _extract_from_harmbench(
@@ -362,6 +397,19 @@ def main() -> None:
         default=0.2,
         help="Holdout ratio for eval split, grouped by normalized question (prompt). 0 disables eval outputs.",
     )
+    parser.add_argument(
+        "--mask_forget_fields",
+        default="",
+        help=(
+            "Comma-separated fields to mask in forget/forget_alt outputs after dedupe/split. "
+            "Examples: answer or question,answer,alternate"
+        ),
+    )
+    parser.add_argument(
+        "--mask_token",
+        default="[MASKED_HARMFUL_CONTENT]",
+        help="Replacement text used when masking forget/forget_alt fields.",
+    )
     args = parser.parse_args()
 
     all_forget: List[Dict[str, Any]] = []
@@ -404,6 +452,12 @@ def main() -> None:
     train_forget = _sample(train_forget, args.max_forget, args.seed)
     train_retain = _sample(train_retain, args.max_retain, args.seed)
 
+    mask_forget_fields = _parse_csv_fields(args.mask_forget_fields)
+    train_forget = _mask_records(train_forget, mask_forget_fields, args.mask_token)
+    train_forget_alt = _mask_records(train_forget_alt, mask_forget_fields, args.mask_token)
+    eval_forget = _mask_records(eval_forget, mask_forget_fields, args.mask_token)
+    eval_forget_alt = _mask_records(eval_forget_alt, mask_forget_fields, args.mask_token)
+
     out_dir = Path(args.out_dir)
 
     # Train outputs
@@ -426,6 +480,8 @@ def main() -> None:
         "eval_forget_count": len(eval_forget),
         "eval_retain_count": len(eval_retain),
         "eval_forget_alt_count": len(eval_forget_alt),
+        "mask_forget_fields": mask_forget_fields,
+        "mask_token": args.mask_token if mask_forget_fields else "",
         "out_dir": str(out_dir),
     }
 
